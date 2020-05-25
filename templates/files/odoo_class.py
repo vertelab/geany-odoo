@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright (C) {year} {developer} (<{mail}>)
+#    Copyright (C) {year} {company} (<{mail}>)
 #    All Rights Reserved
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -19,17 +19,11 @@
 #
 ##############################################################################
 
-from osv import fields, osv
-from tools.translate import _
+from odoo import models, fields, api, exceptions, _
+import logging
+_logger = logging.getLogger(__name__)
 
 
-class (osv.osv):
+class MyClass(models.Model):
+    _name|_inherit = ''
 
-    _name = ""
-    _description = ""
-
-    _columns = {
-        
-        }
-
-()

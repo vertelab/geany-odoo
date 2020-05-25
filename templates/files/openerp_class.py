@@ -31,5 +31,3 @@ class (osv.osv):
     _columns = {
         
         }
-
-()

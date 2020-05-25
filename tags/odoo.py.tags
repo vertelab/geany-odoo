@@ -1,10 +1,10 @@
 # format=pipe
 # Library: OpenERP
 # Extract from:
-browse|list|(cr, uid, ids, context=None)|
-create|integer|(cr, uid, vals, context=None)|
-write|boolean|(cr, uid, ids, vals, context=None)|
-unlink|boolean|(cr, uid, ids, context=None)|
+browse|list|(ids)|
+create|integer|(vals)|
+write|boolean|(vals)|
+unlink|boolean|(ids)|
 copy|integer|((cr, uid, id, default=None, context=None)|
 copy_data|dict|(cr, uid, id, default=None, context=None)|
 copy_translations|integer|(cr, uid, old_id, new_id, context=None)|
@@ -13,4 +13,4 @@ fields_view_get|dict|(cr, uid, view_id=None, view_type='form', context=None, too
 name_get|list|(cr, uid, ids, context=None)|
 name_search|list|(cr, uid, name='', args=None, operator='ilike', context=None, limit=100)|
 read|list|(cr, uid, ids, fields=None, context=None, load='_classic_read')|
-search|list|(cr, uid, args, offset=0, limit=None, order=None, context=None, count=False)|
+search|list|([('fiels','=',var)] offset=0, limit=None, order=None, context=None, count=False)|

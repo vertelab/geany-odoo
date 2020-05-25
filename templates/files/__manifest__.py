@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright (C) {year} {developer} (<{mail}>)
+#    Copyright (C) {year} {company} (<{mail}>)
 #    All Rights Reserved
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -18,19 +18,29 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-
+#
+# https://www.odoo.com/documentation/13.0/reference/module.html
+#
 {
     'name': "",
-    'version': '',
-    'category': '',
-    'description': """""",
-    'author': '{developer} <{mail}>',
-    'website': '',
+    'version': '0.1',
+    'summary': "",
+    'category': '', # Technical Settings|Localization|Payroll Localization|Account Charts|User types|Invoicing|Sales|Human Resources|Operations|Marketing|Manufacturing|Website|Theme|Administration|Appraisals|Sign|Helpdesk|Administration|Extra Rights|Other Extra Rights|
+    'description': """ """,
+    #'sequence': 1,
+    #'images': ['images/main_screenshot.png'],
+    'author': '{company} <{mail}>',
+    'website': 'http://www.vertel.se',
     'license': 'AGPL-3',
-    "depends": [],
-    "init_xml": [],
-    "update_xml": [],
-    "demo_xml": [],
-    "active": False,
-    "installable": True
+    'depends': [],
+     #"external_dependencies": {
+     #   "bin": ["openssl",], 
+     #   "python": ["acme_tiny", "IPy",],
+     #},
+    'data': [],
+    'demo': [],
+    'application': False,
+    'installable': True,    
+    'auto_install': False,
+    #"post_init_hook": "post_init_hook",
 }
