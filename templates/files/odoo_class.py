@@ -19,4 +19,17 @@
 #
 ##############################################################################
 
-from . import
+from osv import fields, osv
+from tools.translate import _
+
+
+class (osv.osv):
+
+    _name = ""
+    _description = ""
+
+    _columns = {
+        
+        }
+
+()

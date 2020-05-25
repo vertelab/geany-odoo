@@ -19,4 +19,18 @@
 #
 ##############################################################################
 
-from . import
+{
+    'name': "",
+    'version': '',
+    'category': '',
+    'description': """""",
+    'author': '{developer} <{mail}>',
+    'website': '',
+    'license': 'AGPL-3',
+    "depends": [],
+    "init_xml": [],
+    "update_xml": [],
+    "demo_xml": [],
+    "active": False,
+    "installable": True
+}

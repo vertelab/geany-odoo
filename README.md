@@ -1,4 +1,4 @@
-This repository is a collection of configuration files to help developers of **OpenERP** modules that use the editor **Geany** for their work.
+This repository is a collection of configuration files to help developers of **Odoo** modules that use the editor **Geany** for their work.
 To install the files is possible to follow the instruction:
 
 ## templates
@@ -17,15 +17,18 @@ Go to File -> New from template
 
 and select your base file from:
 
-* \_\_openerp\_\_.py
-* openerp_class.py
-* openerp_view.xml
+* \_\_openerp\_\_.py   [7.0-9.0]
+* \_\_manifest\_\_.py   [10.0-]
+* openerp_class.py     [7.0-9.0]
+* openerp_view.xml     [7.0-9.0]
+* odoo_class.py        [10.0-]
+* odoo_views.xml       [10.0-]
 * wizard.py
 * wizard_view.xml
 
 ## tags
 
-Contains the OpenERP ORM functions declaration to show the correct use of a function while write it
+Contains the Odoo ORM functions declaration to show the correct use of a function while write it
 
 *INSTALLATION*
 
@@ -33,7 +36,7 @@ Copy (or link) all the files in "tags" folder in ~/.config/geany/tags
 
 *USE*
 
-Write an OpenERP ORM function to see the correct declaration in a tooltip
+Write an Odoo ORM function to see the correct declaration in a tooltip
 
 ## snippets.conf
 
