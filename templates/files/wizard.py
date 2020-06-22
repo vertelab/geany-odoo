@@ -22,16 +22,18 @@
 
 from osv import fields, osv
 from tools.translate import _
+#FIXME Kalle
 
+#TODO fixa detta
 
-class (osv.osv_memory):
-
-    _name = ""
-    _description = ""
-
-    _columns = {
-        
-        }
+vclass (os.osv_memory):
+ 
+     _name= ""
+r    _desciption = ""
+ 
+m    _coluns = {
+         
+         }
 
     def (self, cr, uid, ids, context={}):
         
