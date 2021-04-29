@@ -1,10 +1,12 @@
 #!/bin/bash
 
- 
+# create necessary directories in case they don't already exist
+mkdir -p $HOME/.config/geany/templates/files
+mkdir -p $HOME/.config/geany/templates/tags
+
 for file in __init__.py __manifest__.py odoo_class.py odoo_view.xml __openerp__.py openerp_class.py openerp_view.xml wizard.py wizard_view.xml; do
-   wget -O ~/.config/geany/templates/files/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/templates/files/${file}
+   wget -O $HOME/.config/geany/templates/files/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/templates/files/${file}
 done
 
-wget -O ~/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/vertelab/geany-odoo/master/tags/odoo.py.tags
-wget -O ~/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
-
+wget -O $HOME/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/vertelab/geany-odoo/master/tags/odoo.py.tags
+wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
