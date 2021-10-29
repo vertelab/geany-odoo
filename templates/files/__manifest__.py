@@ -19,18 +19,18 @@
 #
 ##############################################################################
 #
-# https://www.odoo.com/documentation/13.0/reference/module.html
+# https://www.odoo.com/documentation/14.0/reference/module.html
 #
 {
-    'name': "",
-    'version': '0.1',
-    'summary': "",
+    'name': '',
+    'version': '14.0.0.0',
+    'summary': '',
     'category': '', # Technical Settings|Localization|Payroll Localization|Account Charts|User types|Invoicing|Sales|Human Resources|Operations|Marketing|Manufacturing|Website|Theme|Administration|Appraisals|Sign|Helpdesk|Administration|Extra Rights|Other Extra Rights|
     'description': """ """,
     #'sequence': 1,
     #'images': ['images/main_screenshot.png'],
     'author': '{company} <{mail}>',
-    'website': 'http://www.vertel.se',
+    'website': 'https://vertel.se/apps/',
     'license': 'AGPL-3',
     'depends': [],
      #"external_dependencies": {
