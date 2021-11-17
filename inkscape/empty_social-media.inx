@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 2021-11-17 Jakob Krabbe, jakob.krabbe@vertel.se -->
+<!-- Source: https://www.socialpilot.co/blog/social-media-image-sizes -->
+<!-- Se website for accurate mobile vs. desktop dimensions. -->
+<inkscape-extension xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">
+    <_name>Social Media</_name>
+    <id>org.inkscape.render.empty_social-media</id>
+    <dependency type="executable" location="extensions">empty_social-media.py</dependency>
+    <dependency type="executable" location="extensions">inkex.py</dependency>
+    
+    <param name="size" _gui-text="Social Media size:" type="enum">
+        <item value="180pxx180px">180px x 180px (Facebook, Profile Photo)</item>
+        <item value="1200pxx630px">1200px x 630px (Facebook, Shared Image)</item>
+        <item value="820pxx312px">820px x 312px (Facebook, Cover Photo)</item>
+        <item value="400pxx400px">400px x 400px (LinkedIn, Profile Photo)</item>
+        <item value="1584pxx396px">1584px x 396px (LinkedIn, Cover, Personal)</item>
+        <item value="1128pxx191px">1128px x 191px (LinkedIn, Cover, Company)</item>
+        <item value="820pxx312px">820px x 312px (LinkedIn, Cover Photo)</item>
+        <item value="800pxx800px">2560px x 1440px (Youtube, Channel Icon)</item>
+        <item value="2560pxx1440px">2560px x 1440px (Youtube, Cover Photo)</item>
+        <item value="1280pxx760px">1280px x 760px (Youtube, Video Size)</item>
+    </param>
+
+    <effect needs-live-preview="false">
+        <object-type>all</object-type>
+        <effects-menu hidden="true" />
+    </effect>
+    <inkscape:_templateinfo>
+      <inkscape:_name>Social Media...</inkscape:_name>
+      <inkscape:author>Jakob Krabbe</inkscape:author>
+      <inkscape:_shortdesc>Social Media of chosen size.</inkscape:_shortdesc>
+      <inkscape:date>2021-11-17</inkscape:date>
+      <inkscape:_keywords>social media</inkscape:_keywords>
+    </inkscape:_templateinfo>
+    <script>
+        <command reldir="extensions" interpreter="python">empty_social-media.py</command>
+    </script>
+</inkscape-extension>
