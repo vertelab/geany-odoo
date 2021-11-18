@@ -11,9 +11,10 @@ done
 wget -O $HOME/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/vertelab/geany-odoo/master/tags/odoo.py.tags
 wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
 
+echo "1. This is good."
 ## 2021-11-18 Incskape
 if [[ -d "/usr/share/inkscape/extensions/" ]]; then
-    echo "This is looking good."
+    echo "2. This is looking good."
     for file in *incskape/*
     do
         # do some stuff here with "$f"
