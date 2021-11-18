@@ -22,6 +22,6 @@ if [[ -d "/usr/share/inkscape/extensions/" ]]; then
         https://raw.githubusercontent.com/vertelab/geany-odoo/master/${file}
         echo "installing file... ${file}"
     done
-elif
+else
     echo "This is not good."
 fi
