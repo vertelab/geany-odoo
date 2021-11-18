@@ -18,7 +18,7 @@ if [[ -d "/usr/share/inkscape/extensions/" ]]; then
     do
         # do some stuff here with "$f"
         # remember to quote it or spaces may misbehave
-        https://raw.githubusercontent.com/vertelab/geany-odoo/master/inkscape/${file}
+        https://raw.githubusercontent.com/vertelab/geany-odoo/master${file}
         echo "installing file... ${file}"
     done
 elif
