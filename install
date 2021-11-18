@@ -14,11 +14,11 @@ wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vert
 ## 2021-11-18 Incskape
 if [[ -d "/usr/share/inkscape/extensions/" ]]; then
     echo "This is looking good."
-    for file in */*
+    for file in *incskape/*
     do
         # do some stuff here with "$f"
         # remember to quote it or spaces may misbehave
-        https://raw.githubusercontent.com/vertelab/geany-odoo/master${file}
+        https://raw.githubusercontent.com/vertelab/geany-odoo/master/${file}
         echo "installing file... ${file}"
     done
 elif
