@@ -15,8 +15,8 @@ echo "1. This is good."
 ## 2021-11-18 Incskape
 if [[ -d "/usr/share/inkscape/extensions/" ]]; then
     echo "2. This is looking good."
-    for file in https://raw.githubusercontent.com/vertelab/geany-odoo/master/incskape/*; do
-        https://raw.githubusercontent.com/vertelab/geany-odoo/master/${file}
+    for file in /incskape/*; do
+        https://raw.githubusercontent.com/vertelab/geany-odoo/master${file}
         echo "installing file... ${file}"
     done
 else
