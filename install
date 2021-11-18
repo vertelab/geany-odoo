@@ -13,6 +13,7 @@ wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vert
 
 ## 2021-11-18 Incskape
 if [[ -d "/usr/share/inkscape/extensions/" ]]; then
+    echo "This is looking good."
     for file in ../inkscape/*
     do
         # do some stuff here with "$f"
@@ -20,4 +21,6 @@ if [[ -d "/usr/share/inkscape/extensions/" ]]; then
         https://raw.githubusercontent.com/vertelab/geany-odoo/master/inkscape/${file}
         echo "installing file... ${file}"
     done
+elif
+    echo "This is not good."
 fi
