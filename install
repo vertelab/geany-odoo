@@ -10,3 +10,12 @@ done
 
 wget -O $HOME/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/vertelab/geany-odoo/master/tags/odoo.py.tags
 wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
+
+## 2021-11-18 Incskape
+if [[ -d "/usr/share/inkscape/extensions/" ]]
+    for file in ./inkscape/*; do
+        # do some stuff here with "$f"
+        # remember to quote it or spaces may misbehave
+        https://raw.githubusercontent.com/vertelab/geany-odoo/master/inkscape/${file}
+    done
+fi
