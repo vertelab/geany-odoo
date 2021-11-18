@@ -12,7 +12,7 @@ wget -O $HOME/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/
 wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
 
 ## 2021-11-18 Incskape
-if [[ -d "/usr/share/inkscape/extensions/" ]]
+if [[ -d "/usr/share/inkscape/extensions/" ]]; then
     for file in ./inkscape/*
     do
         # do some stuff here with "$f"
