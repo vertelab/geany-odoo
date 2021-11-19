@@ -15,13 +15,13 @@ echo "1. This is good."
 ## 2021-11-18 Incskape
 if [[ -d /usr/share/inkscape/extensions/ ]]; then
     echo "2. This is looking good."
-    for file in empty_odoo.inx empty_odoo.py empty_social-meida.inx empty_social-media.py ; do 
+    for file in empty_odoo.inx empty_odoo.py empty_social-media.inx empty_social-media.py ; do 
          echo "3. back in the loop."
          echo "3. installing file... ${file}"
          wget -O $HOME/usr/share/inkscape/extensions/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/incskape/${file}
-         echo "installing file... ${file}"
+         echo "4.installing file... ${file}"
     done
 else
-    echo "This is not good."
+    echo "5. This is not good."
 fi
-echo "4. Mission complete."
+echo "6. Mission complete."
