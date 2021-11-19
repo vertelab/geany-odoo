@@ -18,7 +18,7 @@ if [[ -d /usr/share/inkscape/extensions/ ]]; then
     for file in empty_odoo.inx empty_odoo.py empty_social-media.inx empty_social-media.py ; do 
          echo "3. back in the loop."
          echo "3. installing file... ${file}"
-         wget -O $/usr/share/inkscape/extensions/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/incskape/${file}
+         wget -O /usr/share/inkscape/extensions/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/incskape/${file}
          echo "4.installing file... ${file}"
     done
 else
