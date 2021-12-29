@@ -30,7 +30,7 @@
     #'sequence': 1,
     'author': '{company} <{mail}>',
     'website': 'https://vertel.se/apps/',
-    'images': ['/static/description/banner.png'],
+    'images': ['/static/description/banner.png'], # 560x280 px.
     'license': 'AGPL-3',
     'depends': [],
      #"external_dependencies": {
