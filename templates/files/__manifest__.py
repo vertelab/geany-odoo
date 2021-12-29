@@ -28,9 +28,9 @@
     'category': '', # Technical Settings|Localization|Payroll Localization|Account Charts|User types|Invoicing|Sales|Human Resources|Operations|Marketing|Manufacturing|Website|Theme|Administration|Appraisals|Sign|Helpdesk|Administration|Extra Rights|Other Extra Rights|
     'description': """ """,
     #'sequence': 1,
-    #'images': ['images/main_screenshot.png'],
     'author': '{company} <{mail}>',
     'website': 'https://vertel.se/apps/',
+    'images': ['/static/description/banner.png'],
     'license': 'AGPL-3',
     'depends': [],
      #"external_dependencies": {
