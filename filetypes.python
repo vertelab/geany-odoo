@@ -5,10 +5,10 @@ FT_00_WD=
 EX_00_LB=_Execute
 EX_00_CM=python3 "%f"
 EX_00_WD=
-FT_01_LB=Preprocess 17
-FT_01_CM=python3 -m py_compile "%f" && bash -c 'f=%f;preprocess -D VERSION=17.0 -o "${f/.p./.}" %f'
-FT_02_LB=Preprocess 18
-FT_02_CM=python3 -m py_compile "%f" && bash -c 'f=%f;preprocess -D VERSION=18.0 -o "${f/.p./.}" %f'
+FT_01_LB=Lint
+FT_01_CM=pycodestyle --max-line-length=120 "%f"
+FT_02_LB=Preprocess 16
+FT_02_CM=python3 -m py_compile "%f" && bash -c 'f=%f;preprocess -D VERSION=16.0 -o "${f/.p./.}" %f'
 FT_04_LB=Lint
-FT_04_CM=pycodestyle --max-line-length=80 "%f"
+FT_04_CM=pycodestyle --max-line-length=120 "%f"
 FT_02_WD=
