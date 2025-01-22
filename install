@@ -10,6 +10,9 @@ done
 
 wget -O $HOME/.config/geany/tags/odoo.py.tags https://raw.githubusercontent.com/vertelab/geany-odoo/master/tags/odoo.py.tags
 wget -O $HOME/.config/geany/snippets.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/snippets.conf
+wget -O $HOME/.config/geany/geany.conf https://raw.githubusercontent.com/vertelab/geany-odoo/master/geany.conf
+wget -O $HOME/.config/geany/filedefs/filetypes.python https://raw.githubusercontent.com/vertelab/geany-odoo/master/filetypes.python
+wget -O $HOME/.config/geany/filedefs/filetypes.xml https://raw.githubusercontent.com/vertelab/geany-odoo/master/filetypes.xml
 
 echo "1. This is good."
 ## 2021-11-18 Incskape
