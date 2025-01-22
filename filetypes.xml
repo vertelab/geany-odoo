@@ -1,7 +1,7 @@
 [build-menu]
-FT_00_LB=Prep 16.0
-FT_00_CM=bash -c 'f=%f;preprocess -D VERSION=16.0 -o "${f/.p./.}" %f'
+FT_00_LB=_Lint
+FT_00_CM=xmllint --noout "%f"
 FT_00_WD=
-FT_02_LB=_Lint
-FT_02_CM=xmllint --noout "%f"
-FT_02_WD=
+FT_01_LB=Preprocess 16.0
+FT_01_CM=bash -c 'f=%f;preprocess -D VERSION=16.0 -o "${f/.p./.}" %f'
+FT_01_WD=
