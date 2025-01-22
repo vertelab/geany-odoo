@@ -4,6 +4,8 @@
 mkdir -p $HOME/.config/geany/templates/files
 mkdir -p $HOME/.config/geany/templates/tags
 sudo pip3 install preprocess --break-system-packages
+sudo pip3 install pycodestyle --break-system-packages
+
 
 for file in __init__.py __manifest__.py odoo_class.py odoo_view.xml __openerp__.py openerp_class.py openerp_view.xml wizard.py wizard_view.xml; do
    wget -O $HOME/.config/geany/templates/files/${file} https://raw.githubusercontent.com/vertelab/geany-odoo/master/templates/files/${file}
