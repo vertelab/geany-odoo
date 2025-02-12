@@ -2,9 +2,9 @@ This repository is a collection of configuration files to help developers of **O
 To install the files is possible to follow the instruction:
 
 ## installation
-
+```
 wget -O- https://raw.githubusercontent.com/vertelab/geany-odoo/master/install | bash
-
+```
 ## templates
 
 Contains the filetype to create rapidly new standard openerp file
