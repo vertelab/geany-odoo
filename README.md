@@ -5,6 +5,14 @@ To install the files is possible to follow the instruction:
 ```
 wget -O- https://raw.githubusercontent.com/vertelab/geany-odoo/master/install | bash
 ```
+## PrettyPrinter
+1. Install as below.<br>
+2. Open "Tools >> Extentions"<br>
+3. Find, mark and select XML PrettyPrinter.
+```
+sudo apt install geany-plugin-prettyprinter
+```
+
 ## templates
 
 Contains the filetype to create rapidly new standard openerp file
