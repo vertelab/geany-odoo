@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""geany-pfiles - p-file helper for the geany-pfiles Geany plugin.
+
+Odoo modules here are written version-agnostically as *p-files* (``x.p.py``,
+``x.p.xml``, ...) with ``#if VERSION >= "18.0"`` blocks, expanded with
+``preprocess -D VERSION=<v> -o <out> <in>``.
+
+Geany can have such a file open from another machine over gvfs/sftp
+(``/run/user/1000/gvfs/sftp:host=192.168.11.145/usr/share/x/models/a.p.py``).
+Expansion must happen **on that machine**, in that directory - that is what
+this helper does (same target-resolution as the Multiterm tab).
+
+Commands
+--------
+    geany-pfiles preprocess <version> <file> [--cmd CMD] [--defines "-D X=Y"]
+        Expand <file> for <version> where the file lives.
+        Output = <file> with ".p." replaced by "." (same directory).
+
+    geany-pfiles git-config <file> [--editions 16.0,17.0,18.0]
+                                   [--preprocess-cmd CMD] [--hooks-path DIR]
+                                   [--no-precommit]
+        Install the git configuration the p-files need, in the repository that
+        contains <file> **on that machine**:
+          * managed block in .gitattributes (*.p.* language + eol=lf)
+          * <hooks-path>/pre-commit expanding staged p-files for the version
+            named by the current branch (branch-per-version model)
+          * git config core.hooksPath <hooks-path>
+
+    geany-pfiles where <file> [--json]     # local:<dir> or <host>:<dir>
+
+Exit status mirrors the expanded command so Geany's build output shows errors.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]
+
+ATTR_BEGIN = "# >>> geany-pfiles >>>"
+ATTR_END = "# <<< geany-pfiles <<<"
+
+ATTR_BODY = """*.p.py  linguist-language=Python     text eol=lf
+*.p.js  linguist-language=JavaScript text eol=lf
+*.p.xml linguist-language=XML        text eol=lf
+*.p.csv linguist-language=CSV        text eol=lf
+"""
+
+HOOK = """#!/bin/sh
+# Managed by geany-pfiles.
+# Expands staged p-files for the version named by the current branch
+# (branch-per-version model) and stages the result, so a commit can never
+# contain a stale expansion.
+set -e
+V="${GEANY_PFILES_VERSION:-}"
+if [ -z "$V" ]; then
+    b=$(git symbolic-ref --short -q HEAD || true)
+    case "$b" in
+    EDITIONS_PATTERN) V="$b" ;;
+    esac
+fi
+if [ -z "$V" ]; then
+    echo "geany-pfiles: grenen matchar ingen utgåva - hoppar över expansion"
+    exit 0
+fi
+CMD="${GEANY_PFILES_PREPROCESS:-PRECOMMAND}"
+if ! command -v "$CMD" >/dev/null 2>&1; then
+    echo "geany-pfiles: '$CMD' saknas - hoppar över expansion" >&2
+    exit 0
+fi
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\\.p\\.' || true)
+[ -n "$files" ] || exit 0
+printf '%s\\n' "$files" | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    o=$(printf '%s' "$f" | sed 's/\\.p\\././')
+    "$CMD" -D VERSION="$V" -o "$o" "$f"
+    git add "$o"
+    echo "geany-pfiles: $f -> $o (VERSION=$V)"
+done
+exit 0
+"""
+
+
+# ---------------------------------------------------------------- location
+def split_location(path: str):
+    """(remote, host, user, port, directory, filename)."""
+    p = os.path.abspath(path)
+    m = re.search(r"/gvfs/([A-Za-z0-9+.-]+):host=([^/,]+)((?:,[^/]+)*)/(.*)$", p)
+    if not m:
+        return False, None, None, None, os.path.dirname(p), os.path.basename(p)
+    _scheme, host, params, rest = m.groups()
+    user = port = None
+    for kv in (params or "").split(","):
+        if kv.startswith("user="):
+            user = kv[5:]
+        elif kv.startswith("port="):
+            port = kv[5:]
+    return (True, host, user, port, os.path.dirname("/" + rest),
+            os.path.basename(rest))
+
+
+def ssh_argv(host, user, port):
+    dst = f"{user}@{host}" if user else host
+    argv = ["ssh"] + SSH_OPTS
+    if port:
+        argv += ["-p", str(port)]
+    return argv + [dst]
+
+
+def run(argv, cwd=None):
+    try:
+        return subprocess.run(argv, cwd=cwd).returncode
+    except FileNotFoundError as exc:
+        print(f"geany-pfiles: {exc}", file=sys.stderr)
+        return 127
+
+
+def run_remote_script(host, user, port, directory, script):
+    """Run a shell script on the remote host (base64 - no quoting issues)."""
+    b64 = base64.b64encode(script.encode()).decode()
+    cmd = (f"cd {shlex.quote(directory)} 2>/dev/null || {{ "
+           f"echo 'geany-pfiles: katalogen finns inte' >&2; exit 9; }}; "
+           f"echo {b64} | base64 -d | /bin/sh")
+    return run(ssh_argv(host, user, port) + [cmd])
+
+
+def out_name(fname: str) -> str:
+    return fname.replace(".p.", ".") if ".p." in fname else fname + ".out"
+
+
+# --------------------------------------------------------------- plugin conf
+def read_plugin_conf() -> dict:
+    path = os.path.join(os.path.expanduser("~"), ".config", "geany",
+                        "geany-pfiles", "geany-pfiles.conf")
+    cfg: dict[str, str] = {}
+    try:
+        text = open(path).read()
+    except OSError:
+        return cfg
+    section = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+            continue
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            cfg[f"{section}.{k.strip()}" if section else k.strip()] = v.strip()
+    return cfg
+
+
+def cfg_get(cfg, key, default):
+    return cfg.get(key) or default
+
+
+# ------------------------------------------------------------- preprocess
+def cmd_preprocess(args) -> int:
+    cfg = read_plugin_conf()
+    remote, host, user, port, directory, fname = split_location(args.file)
+    if ".p." not in fname:
+        print(f"geany-pfiles: '{fname}' har inget '.p.' i namnet", file=sys.stderr)
+        return 2
+
+    cmd = args.cmd or cfg_get(cfg, "editions.preprocess_cmd", "preprocess")
+    defines = args.defines if args.defines is not None else \
+        cfg_get(cfg, "editions.defines", "")
+    out = args.output or out_name(fname)
+
+    parts = [cmd, "-D", f"VERSION={args.version}"]
+    if defines:
+        parts += shlex.split(defines)
+    parts += ["-o", out, fname]
+    line = " ".join(shlex.quote(p) for p in parts)
+
+    where = f"{host}:{directory}" if remote else directory
+    print(f"geany-pfiles: {where}  VERSION={args.version}  → {out}")
+    if remote:
+        return run(ssh_argv(host, user, port) +
+                   [f"cd {shlex.quote(directory)} && {line}"])
+    return run(parts, cwd=directory)
+
+
+# ------------------------------------------------------------- git-config
+def build_git_script(editions, cmd, hooks_path, with_hook):
+    pattern = "|".join(editions)
+    hook = HOOK.replace("EDITIONS_PATTERN", pattern).replace("PRECOMMAND", cmd)
+    hook_b64 = base64.b64encode(hook.encode()).decode()
+    attrs_b64 = base64.b64encode(
+        (ATTR_BEGIN + "\n" + ATTR_BODY + ATTR_END + "\n").encode()).decode()
+
+    hook_part = ""
+    if with_hook:
+        hook_part = f"""
+mkdir -p {shlex.quote(hooks_path)}
+echo {hook_b64} | base64 -d > {shlex.quote(hooks_path)}/pre-commit
+chmod +x {shlex.quote(hooks_path)}/pre-commit
+git config core.hooksPath {shlex.quote(hooks_path)}
+echo "geany-pfiles: pre-commit + core.hooksPath={hooks_path} på plats"
+"""
+    else:
+        hook_part = '# (--no-precommit: ingen hook installerades)\\n'
+
+    return f"""set -e
+repo=$(git rev-parse --show-toplevel 2>/dev/null) || {{
+    echo 'geany-pfiles: hittar inget git-repo här' >&2; exit 1; }}
+cd "$repo"
+python3 - <<'PYEOF'
+import re
+block = {ATTR_BEGIN!r} + "\\n" + {ATTR_BODY!r} + {ATTR_END!r} + "\\n"
+try:
+    text = open(".gitattributes").read()
+except OSError:
+    text = ""
+text = re.sub(re.escape({ATTR_BEGIN!r}) + r".*?" + re.escape({ATTR_END!r}) + r"\\n?",
+              "", text, flags=re.S)
+text = text.rstrip("\\n")
+text = (text + "\\n\\n" if text else "") + block
+open(".gitattributes", "w").write(text)
+print("geany-pfiles: .gitattributes uppdaterad")
+PYEOF
+{hook_part}
+echo "geany-pfiles: klart i $repo"
+"""
+
+
+def cmd_git_config(args) -> int:
+    cfg = read_plugin_conf()
+    editions = [e.strip() for e in (args.editions or cfg_get(
+        cfg, "editions.list", "17.0,18.0,19.0")).split(",") if e.strip()]
+    cmd = args.preprocess_cmd or cfg_get(cfg, "editions.preprocess_cmd",
+                                         "preprocess")
+    hooks_path = args.hooks_path or cfg_get(cfg, "git.hooks_path", ".githooks")
+    with_hook = not args.no_precommit
+
+    remote, host, user, port, directory, _fname = split_location(args.file)
+    script = build_git_script(editions, cmd, hooks_path, with_hook)
+
+    where = f"{host}:{directory}" if remote else directory
+    print(f"geany-pfiles: git-konfiguration i {where} "
+          f"(utgåvor: {', '.join(editions)})")
+    if remote:
+        return run_remote_script(host, user, port, directory, script)
+    return run(["/bin/sh", "-c", script], cwd=directory)
+
+
+# ------------------------------------------------------------------- where
+def cmd_where(args) -> int:
+    remote, host, user, port, directory, _f = split_location(args.file)
+    if args.json:
+        import json
+        print(json.dumps({"remote": remote, "host": host, "user": user,
+                          "port": port, "dir": directory}))
+    else:
+        print(f"{host}:{directory}" if remote else f"local:{directory}")
+    return 0
+
+
+# -------------------------------------------------------------------- main
+def main(argv) -> int:
+    ap = argparse.ArgumentParser(prog="geany-pfiles")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("preprocess")
+    p.add_argument("version")
+    p.add_argument("file")
+    p.add_argument("--cmd", default=None)
+    p.add_argument("--defines", default=None)
+    p.add_argument("--output", default=None)
+    p.set_defaults(func=cmd_preprocess)
+
+    g = sub.add_parser("git-config")
+    g.add_argument("file")
+    g.add_argument("--editions", default=None)
+    g.add_argument("--preprocess-cmd", dest="preprocess_cmd", default=None)
+    g.add_argument("--hooks-path", dest="hooks_path", default=None)
+    g.add_argument("--no-precommit", action="store_true")
+    g.set_defaults(func=cmd_git_config)
+
+    w = sub.add_parser("where")
+    w.add_argument("file")
+    w.add_argument("--json", action="store_true")
+    w.set_defaults(func=cmd_where)
+
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
