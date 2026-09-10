@@ -103,3 +103,31 @@ Just type keywords below and press TAB button to get the auto-insertion of the s
 * domain = domain field
 * help = help tag used in the action structure
 * attrs = complete attrs field tag
+
+## geany-pi — Geany plugin
+
+Native Geany plugin source lives in [`geany-pi/`](geany-pi/):
+
+* **Multiterm** tab — one `$SHELL` terminal per document directory; documents
+  opened over gvfs/sftp get `ssh -t <host> "cd <dir> && exec $SHELL -l"`.
+* **Pi** tab — a separate Pi coding-agent session.
+* **Agent surface** — a UNIX-socket bridge for external agents
+  (`geany-pi-ctl`), `geany-pi-git` (git at the document's machine) and
+  `geany-pi-mcp-router` (Odoo `ai_pi_mcp` MCP, routed per active document).
+
+Configuration is done in Geany's Plugin Manager → Preferences (no Tools menu
+items).
+
+### Install (Salt)
+
+Salt pulls **the current code from this repository** on every run and rebuilds
+when it changed — there is no copy of the plugin source on the Salt master:
+
+```
+salt <minion> state.apply workstation.geany pillar='{"user": "waland"}'
+```
+
+Manual build: `cd geany-pi && make && make install`.
+
+Requires Ubuntu 24.04, Geany 2.1 (`ppa:ubuntuhandbook1/geany`) and
+`libvte-2.91-dev`.

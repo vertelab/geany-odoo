@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""geany-pi-git - git on the machine that OWNS the active Geany document.
+
+Geany may have a document open from another machine over gvfs/sftp
+(`sftp:host=192.168.11.145/usr/share/odoo-account/...`). Committing and
+pushing that file must happen on *that* machine, in the repository that
+contains it. This helper asks the plugin's bridge where the document lives
+and runs git there - locally, or over ssh for remote documents.
+
+Usage
+-----
+    geany-pi-git info                     # where is the document?
+    geany-pi-git root                     # repository root
+    geany-pi-git status                   # short status + branch
+    geany-pi-git diff [--staged]
+    geany-pi-git log [-n 15]
+    geany-pi-git branch
+    geany-pi-git remote
+    geany-pi-git add <path>...            # stage
+    geany-pi-git commit -m "message" [--all]
+    geany-pi-git push [--set-upstream]
+    geany-pi-git pull | fetch
+    geany-pi-git raw <git args>           # advanced: any git command
+
+Target selection (optional): --id N | --index N | --file PATH  (forwarded to
+the bridge, so another open document can be used instead of the active one).
+
+Exit code mirrors git's, so callers can detect failure.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import socket
+import subprocess
+import sys
+
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=accept-new"]
+
+
+def socket_path() -> str:
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    cands = [os.path.join(xdg, "geany-pi.sock")] if xdg else []
+    cands.append("/tmp/geany-pi-%d.sock" % os.getuid())
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    return cands[0]
+
+
+def bridge(req: dict) -> dict:
+    path = socket_path()
+    if not os.path.exists(path):
+        sys.exit("geany-pi-git: bryggan saknas (%s) - körs Geany med "
+                 "geany-pi-pluginet?" % path)
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(15)
+    try:
+        s.connect(path)
+        s.sendall((json.dumps(req) + "\n").encode())
+        buf = bytearray()
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+    finally:
+        s.close()
+    return json.loads(bytes(buf).decode("utf-8", "replace").strip() or "{}")
+
+
+def target_request(args) -> dict:
+    req = {"cmd": "info"}
+    if getattr(args, "id", None) is not None:
+        req["id"] = args.id
+    if getattr(args, "index", None) is not None:
+        req["index"] = args.index
+    if getattr(args, "file", None):
+        req["file"] = args.file
+    return req
+
+
+def ssh_argv(info: dict) -> list[str]:
+    dst = info["host"]
+    if info.get("user"):
+        dst = "%s@%s" % (info["user"], dst)
+    argv = ["ssh"] + SSH_OPTS
+    if info.get("port"):
+        argv += ["-p", str(info["port"])]
+    return argv + [dst]
+
+
+def run_git(info: dict, git_args: list[str], verbose=False) -> int:
+    d = info.get("dir") or ""
+    if not d:
+        sys.exit("geany-pi-git: dokumentet har ingen katalog")
+
+    if info.get("remote"):
+        inner = "cd %s 2>/dev/null || { echo 'geany-pi-git: katalogen finns inte' >&2; exit 9; }; git %s" % (
+            shlex.quote(d),
+            " ".join(shlex.quote(a) for a in git_args),
+        )
+        if verbose:
+            sys.stderr.write("# %s:%s\n" % (info["host"], d))
+        p = subprocess.run(ssh_argv(info) + [inner])
+        return p.returncode
+
+    if verbose:
+        sys.stderr.write("# local:%s\n" % d)
+    return subprocess.run(["git", "-C", d] + git_args).returncode
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="geany-pi-git",
+                                 description="git at the active Geany document's location")
+    ap.add_argument("--id", type=int)
+    ap.add_argument("--index", type=int)
+    ap.add_argument("--file")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("info")
+    for name in ("root", "status", "branch", "remote", "fetch", "pull"):
+        sub.add_parser(name)
+
+    d = sub.add_parser("diff"); d.add_argument("--staged", action="store_true")
+    l = sub.add_parser("log");  l.add_argument("-n", type=int, default=15)
+    a = sub.add_parser("add");  a.add_argument("paths", nargs="+")
+    c = sub.add_parser("commit")
+    c.add_argument("-m", "--message", required=True)
+    c.add_argument("--all", action="store_true", help="also stage modified tracked files (-a)")
+    pu = sub.add_parser("push"); pu.add_argument("--set-upstream", action="store_true", dest="upstream")
+    r = sub.add_parser("raw");  r.add_argument("args", nargs=argparse.REMAINDER)
+
+    args = ap.parse_args(argv)
+
+    info = bridge(target_request(args))
+    if not info.get("ok", False):
+        sys.exit("geany-pi-git: %s" % info.get("error", "okänt fel"))
+
+    if args.cmd == "info":
+        print(json.dumps({k: info.get(k) for k in
+                          ("file", "remote", "host", "user", "port", "dir",
+                           "language", "changed", "is_active")},
+                         ensure_ascii=False, indent=2))
+        return 0
+
+    if args.cmd == "root":
+        git_args = ["rev-parse", "--show-toplevel"]
+    elif args.cmd == "status":
+        git_args = ["status", "-sb"]
+    elif args.cmd == "branch":
+        git_args = ["branch", "--show-current"]
+    elif args.cmd == "remote":
+        git_args = ["remote", "-v"]
+    elif args.cmd == "diff":
+        git_args = ["diff"] + (["--staged"] if args.staged else [])
+    elif args.cmd == "log":
+        git_args = ["log", "--oneline", "--decorate", "-n", str(args.n)]
+    elif args.cmd == "add":
+        git_args = ["add", "--"] + args.paths
+    elif args.cmd == "commit":
+        git_args = ["commit"] + (["-a"] if args.all else []) + ["-m", args.message]
+    elif args.cmd == "push":
+        git_args = ["push"] + (["--set-upstream", "origin", "HEAD"] if args.upstream else [])
+    elif args.cmd in ("fetch", "pull"):
+        git_args = [args.cmd]
+    elif args.cmd == "raw":
+        git_args = list(args.raw)
+        if git_args and git_args[0] == "--":
+            git_args = git_args[1:]
+    else:
+        ap.error("okänt kommando")
+        return 2
+
+    return run_git(info, git_args, verbose=args.verbose)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

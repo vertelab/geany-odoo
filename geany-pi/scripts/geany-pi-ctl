@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""geany-pi-ctl - control the geany-pi plugin bridge.
+
+Talks to the running Geany instance over its UNIX domain socket and reads
+or writes the active document / selection. Designed to be used by an agent
+(e.g. Pi) that runs in a terminal and needs editor context.
+
+Examples
+--------
+    geany-pi-ctl ping
+    geany-pi-ctl info                       # JSON with file/language/selection
+    geany-pi-ctl docs                       # list open tabs (index, id, file)
+    geany-pi-ctl get-document              # whole buffer to stdout
+    geany-pi-ctl get-document --id 1047    # ...from a background tab
+    geany-pi-ctl get-selection             # current selection to stdout
+    geany-pi-ctl set-document --file new.py   # replace whole buffer
+    echo "print(1)" | geany-pi-ctl set-selection --doc 0
+    geany-pi-ctl status "Pi: looking at the code"
+    geany-pi-ctl open /path/to/file.py
+
+Document targeting
+------------------
+Every document-scoped command accepts --doc INDEX, --id ID or --path FILE
+(see `docs` for the values). Omit them to act on the active tab. Add
+--activate to switch the tab when the command touches the buffer; writes
+default to activating, reads do not.
+
+Exit status is 0 on success and 1 on error (message on stderr).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import sys
+
+DEFAULT_TIMEOUT = 30.0
+
+
+def socket_path() -> str:
+    candidates = []
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        candidates.append(os.path.join(xdg, "geany-pi.sock"))
+    candidates.append("/tmp/geany-pi-%d.sock" % os.getuid())
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    # return the first preference even if missing, for a clear error
+    return candidates[0]
+
+
+def request(obj: dict, timeout: float = DEFAULT_TIMEOUT) -> dict:
+    path = socket_path()
+    if not os.path.exists(path):
+        raise RuntimeError(
+            "geany-pi bridge socket not found (%s). "
+            "Is Geany running with the geany-pi plugin enabled?" % path
+        )
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(path)
+        payload = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+        s.sendall(payload)
+        buf = bytearray()
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+    finally:
+        s.close()
+    line = bytes(buf).decode("utf-8", "replace").strip()
+    if not line:
+        raise RuntimeError("empty response from geany-pi bridge")
+    return json.loads(line)
+
+
+def read_stdin_text() -> str:
+    return sys.stdin.read()
+
+
+def add_doc_target(p, *, writes: bool = False) -> None:
+    """Add mutually exclusive document-targeting options to a subparser."""
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--doc", type=int, metavar="INDEX",
+                   help="target document by index as shown by 'docs'")
+    g.add_argument("--id", type=int, metavar="ID",
+                   help="target document by stable Geany id (see 'docs')")
+    g.add_argument("--path", metavar="FILE",
+                   help="target document by file name (see 'docs')")
+    if writes:
+        p.add_argument("--activate", dest="activate", action="store_true",
+                       default=True,
+                       help="switch to the tab when writing (default)")
+        p.add_argument("--no-activate", dest="activate", action="store_false",
+                       help="edit without switching tabs")
+    else:
+        p.add_argument("--activate", dest="activate", action="store_true",
+                       default=False,
+                       help="switch to the tab while reading")
+
+
+def doc_fields(args) -> dict:
+    """Map CLI target options onto bridge request fields."""
+    d: dict = {}
+    if getattr(args, "doc", None) is not None:
+        d["index"] = args.doc
+    elif getattr(args, "id", None) is not None:
+        d["id"] = args.id
+    elif getattr(args, "path", None):
+        d["file"] = args.path
+    if getattr(args, "activate", None) is not None:
+        d["activate"] = bool(args.activate)
+    return d
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="geany-pi-ctl",
+        description="Control the geany-pi plugin bridge (read/write the "
+                    "active Geany document).",
+    )
+    ap.add_argument("--json", action="store_true",
+                    help="always print the full JSON response")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("ping", help="check that the bridge answers")
+    pi_ = sub.add_parser("info", help="JSON info about a document")
+    add_doc_target(pi_)
+    sub.add_parser("docs", help="list open documents (index, id, file)")
+
+    sel = sub.add_parser("select", help="set the editor selection")
+    sel.add_argument("start", type=int)
+    sel.add_argument("end", type=int)
+    add_doc_target(sel, writes=True)
+
+    cod = sub.add_parser("codes", help="dump raw byte codes (debug)")
+    cod.add_argument("--start", type=int, default=0)
+    cod.add_argument("--len", type=int, default=32)
+    add_doc_target(cod)
+
+    gd = sub.add_parser("get-document", help="print a whole buffer")
+    add_doc_target(gd)
+    gs = sub.add_parser("get-selection", help="print a selection")
+    add_doc_target(gs)
+
+    for name, scope, helptext in (
+        ("set-document", "document", "replace a whole buffer"),
+        ("set-selection", "selection", "replace a selection"),
+    ):
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument("--file", metavar="PATH",
+                       help="read replacement text from PATH (default: stdin)")
+        p.set_defaults(scope=scope)
+        add_doc_target(p, writes=True)
+
+    pi = sub.add_parser("insert", help="insert text at the cursor")
+    pi.add_argument("--file", metavar="PATH",
+                    help="read text from PATH (default: stdin)")
+    add_doc_target(pi, writes=True)
+
+    st = sub.add_parser("status", help="write a line to Geany's status tab")
+    st.add_argument("text", nargs="?", default="")
+    st.add_argument("--file", metavar="PATH")
+
+    op = sub.add_parser("open", help="open a file in Geany")
+    op.add_argument("file")
+
+    args = ap.parse_args(argv)
+
+    try:
+        if args.cmd == "ping":
+            resp = request({"cmd": "ping"}, args.timeout)
+        elif args.cmd == "info":
+            resp = request({"cmd": "info", **doc_fields(args)}, args.timeout)
+        elif args.cmd == "docs":
+            resp = request({"cmd": "docs"}, args.timeout)
+        elif args.cmd == "select":
+            resp = request({"cmd": "select", "start": args.start,
+                            "end": args.end, **doc_fields(args)}, args.timeout)
+        elif args.cmd == "codes":
+            resp = request({"cmd": "codes", "start": args.start,
+                            "len": args.len, **doc_fields(args)}, args.timeout)
+        elif args.cmd in ("get-document", "get-selection"):
+            scope = "document" if args.cmd == "get-document" else "selection"
+            resp = request({"cmd": "get", "scope": scope,
+                            **doc_fields(args)}, args.timeout)
+        elif args.cmd in ("set-document", "set-selection"):
+            text = (open(args.file, "r", encoding="utf-8").read()
+                    if args.file else read_stdin_text())
+            resp = request({"cmd": "set", "scope": args.scope, "text": text,
+                            **doc_fields(args)}, args.timeout)
+        elif args.cmd == "insert":
+            text = (open(args.file, "r", encoding="utf-8").read()
+                    if args.file else read_stdin_text())
+            resp = request({"cmd": "insert", "text": text,
+                            **doc_fields(args)}, args.timeout)
+        elif args.cmd == "status":
+            text = open(args.file, encoding="utf-8").read() if args.file \
+                   else args.text
+            resp = request({"cmd": "status", "text": text}, args.timeout)
+        elif args.cmd == "open":
+            resp = request({"cmd": "open", "file": os.path.abspath(args.file)},
+                           args.timeout)
+        else:
+            ap.error("unknown command")
+            return 2
+    except Exception as exc:                       # noqa: BLE001
+        print("geany-pi-ctl: %s" % exc, file=sys.stderr)
+        return 1
+
+    if not resp.get("ok", False):
+        print("geany-pi-ctl: %s" % resp.get("error", "unknown error"),
+              file=sys.stderr)
+        return 1
+
+    # Output rules: get-* print the bare text unless --json.
+    if args.json:
+        print(json.dumps(resp, ensure_ascii=False, indent=2))
+    elif args.cmd in ("get-document", "get-selection"):
+        sys.stdout.write(resp.get("text", ""))
+    elif args.cmd == "ping":
+        print("ok plugin=%s version=%s pid=%s" % (
+            resp.get("plugin"), resp.get("version"), resp.get("pid")))
+    elif args.cmd == "docs":
+        for d in resp.get("docs", []):
+            print("%s %-4s %-6s %s%s" % (
+                "*" if d.get("current") else " ",
+                d.get("index", "?"),
+                d.get("id", "?"),
+                d.get("file") or "",
+                "  [changed]" if d.get("changed") else ""))
+    elif args.cmd == "codes":
+        print("length=%s codes=%s" % (resp.get("length"), resp.get("codes")))
+        print("text=%r" % bytes(resp.get("codes", [])).decode("latin-1"))
+    else:
+        print(json.dumps(resp, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

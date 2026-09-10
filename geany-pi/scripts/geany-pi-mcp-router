@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""geany-pi-mcp-router — local MCP router that follows Geany's active document.
+
+Geany opens Odoo sources from many machines over gvfs/sftp
+(`sftp:host=192.168.11.145`). Real development on such a file needs *that*
+machine's ai_pi_mcp (`http://<host>:8069/mcp`), and every machine needs its own
+URL. Instead of registering one Pi MCP server per machine (and restarting Pi
+whenever a new machine shows up), this router exposes ONE stable endpoint:
+
+        http://127.0.0.1:8765/mcp        (registered once in Pi)
+
+and forwards every MCP request to the machine of the **currently active Geany
+document**, rewriting the Authorization header with the token for that host.
+
+Target resolution (per request, cached briefly):
+   1. $PI_MCP_ROUTER_TARGET              (explicit override, for tests)
+   2. the active document's sftp:host    (via `geany-pi-ctl --json info`)
+   3. fallback: the machine's own Pi Odoo connection (~/.pi/agent/odoo.json)
+
+Token resolution for a host:
+   1. mcp-hosts.json  hosts.<host>.token
+   2. mcp-hosts.json  default_token      (the shared dev token)
+   3. that host's ~/.pi/agent/odoo.json over ssh (only if baseUrl has the host)
+   4. ~/.pi/agent/odoo.json token        (fallback target only)
+
+MCP sessions are forwarded verbatim (`Mcp-Session-Id`). If the active document
+switches machine mid-session the upstream answers 404, which the MCP client
+handles by re-initialising.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+PORT = int(os.environ.get("PI_MCP_ROUTER_PORT", "8765"))
+BIND = os.environ.get("PI_MCP_ROUTER_BIND", "127.0.0.1")
+AGENT = Path.home() / ".pi" / "agent"
+HOSTS_CANDIDATES = [
+    Path(os.environ["GEANY_LLM_MCP_HOSTS"]) if os.environ.get("GEANY_LLM_MCP_HOSTS") else None,
+    Path("/etc/geany-pi/mcp-hosts.json"),
+    Path.home() / ".config" / "geany" / "geany-pi" / "mcp-hosts.json",
+]
+HOP_HEADERS = {"host", "connection", "content-length", "transfer-encoding",
+               "keep-alive", "proxy-authorization", "te", "trailer",
+               "upgrade"}
+
+_lock = threading.Lock()
+_cache: dict = {"t": 0.0, "host": None, "url": None, "token": None, "src": ""}
+_log_fh = None
+
+
+def log(msg: str) -> None:
+    global _log_fh
+    line = "%.0f %s" % (time.time(), msg)
+    sys.stderr.write(line + "\n")
+    sys.stderr.flush()
+
+
+def load_json(path):
+    try:
+        return json.loads(Path(path).read_text())
+    except Exception:
+        return None
+
+
+def hosts_cfg() -> dict:
+    for c in HOSTS_CANDIDATES:
+        if c is None:
+            continue
+        d = load_json(c)
+        if isinstance(d, dict):
+            return d
+    return {}
+
+
+def local_odoo() -> tuple[str, str] | None:
+    d = load_json(AGENT / "odoo.json")
+    if not d or not d.get("baseUrl") or not d.get("token"):
+        return None
+    root = d["baseUrl"].rstrip("/")
+    if root.endswith("/ai/v1"):
+        root = root[: -len("/ai/v1")]
+    return root.rstrip("/") + "/mcp", d["token"]
+
+
+def active_doc_host() -> str | None:
+    exe = shutil.which("geany-pi-ctl")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "--json", "info"], capture_output=True,
+                             text=True, timeout=6).stdout
+        f = json.loads(out).get("file", "") or ""
+    except Exception:
+        return None
+    m = re.search(r"sftp:host=([^/,]+)", f)
+    return m.group(1) if m else None
+
+
+def ssh_odoo_json(host: str):
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o",
+                            "ConnectTimeout=4", "-o",
+                            "StrictHostKeyChecking=no", host,
+                            "cat ~/.pi/agent/odoo.json"],
+                           capture_output=True, text=True, timeout=12)
+        if r.returncode != 0:
+            return None
+        return json.loads(r.stdout)
+    except Exception:
+        return None
+
+
+def resolve(force: bool = False) -> dict:
+    with _lock:
+        if not force and (time.time() - _cache["t"] < 1.0):
+            return _cache
+        tgt = os.environ.get("PI_MCP_ROUTER_TARGET")
+        host = None
+        if tgt:
+            _cache.update(t=time.time(), host=None, url=tgt,
+                          token=os.environ.get("PI_MCP_ROUTER_TOKEN", ""),
+                          src="env")
+            return _cache
+        host = active_doc_host()
+        cfg = hosts_cfg()
+        if host:
+            entry = (cfg.get("hosts") or {}).get(host) or {}
+            url = entry.get("url") or cfg.get("default_url_pattern",
+                                              "http://{host}:8069/mcp").format(host=host)
+            token = entry.get("token") or cfg.get("default_token")
+            src = "mcp-hosts.json"
+            if not token:
+                d = ssh_odoo_json(host)
+                if d and d.get("baseUrl") and d.get("token") and host in d["baseUrl"]:
+                    url = d["baseUrl"].rstrip("/")
+                    if url.endswith("/ai/v1"):
+                        url = url[: -len("/ai/v1")]
+                    url = url.rstrip("/") + "/mcp"
+                    token = d["token"]
+                    src = "remote odoo.json"
+            _cache.update(t=time.time(), host=host, url=url, token=token, src=src)
+            return _cache
+        lo = local_odoo()
+        if lo:
+            _cache.update(t=time.time(), host=None, url=lo[0], token=lo[1],
+                          src="local odoo.json")
+        else:
+            _cache.update(t=time.time(), host=None, url=None, token=None,
+                          src="none")
+        return _cache
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    server_version = "geany-pi-mcp-router/1.0"
+
+    def log_message(self, fmt, *args):    # quieter
+        log("http " + (fmt % args))
+
+    def _forward(self, method: str, body: bytes | None):
+        r = resolve()
+        if not r.get("url"):
+            self._reply(503, {"error": "no MCP target (no active document "
+                                       "host and no local odoo.json)"})
+            return
+        headers = {}
+        for k, v in self.headers.items():
+            if k.lower() in HOP_HEADERS:
+                continue
+            headers[k] = v
+        if r.get("token"):
+            headers["Authorization"] = "Bearer " + r["token"]
+        else:
+            headers.pop("Authorization", None)
+        if body is not None:
+            headers["Content-Length"] = str(len(body))
+
+        req = urllib.request.Request(r["url"], data=body, headers=headers,
+                                     method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = resp.read()
+                self.send_response(resp.status)
+                for k, v in resp.headers.items():
+                    if k.lower() in HOP_HEADERS:
+                        continue
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+        except urllib.error.HTTPError as e:
+            data = e.read()
+            self.send_response(e.code)
+            for k, v in e.headers.items():
+                if k.lower() in HOP_HEADERS:
+                    continue
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as exc:
+            log("upstream error -> %s: %s" % (r["url"], exc))
+            self._reply(502, {"error": "router upstream failure: %s" % exc,
+                              "target": r["url"]})
+
+    def _reply(self, code: int, obj) -> None:
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        if self.path.rstrip("/") != "/mcp":
+            self._reply(404, {"error": "only /mcp"})
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(n) if n else b""
+        r = resolve()
+        log("POST %s -> %s host=%s src=%s" % (self.path, r.get("url"),
+                                              r.get("host"), r.get("src")))
+        self._forward("POST", body)
+
+    def do_GET(self):
+        r = resolve()
+        log("GET %s -> %s" % (self.path, r.get("url")))
+        self._forward("GET", None)
+
+    def do_DELETE(self):
+        r = resolve()
+        log("DELETE %s -> %s" % (self.path, r.get("url")))
+        self._forward("DELETE", None)
+
+
+def main() -> int:
+    # single instance per port
+    srv = ThreadingHTTPServer((BIND, PORT), Handler)
+    r = resolve(force=True)
+    log("geany-pi-mcp-router listening on http://%s:%d/mcp (target=%s, %s)"
+        % (BIND, PORT, r.get("url"), r.get("src")))
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

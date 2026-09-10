@@ -1,0 +1,8 @@
+# build artefacts
+*.o
+*.so
+src/*.o
+
+# editor
+*.swp
+*~

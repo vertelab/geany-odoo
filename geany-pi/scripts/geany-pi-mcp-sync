@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""geany-pi-mcp-sync - register per-machine ai_pi_mcp servers in Pi's MCP config.
+
+Geany on one machine can open documents stored on *other* machines over
+gvfs/sftp.  Those paths look like:
+
+    /run/user/1000/gvfs/sftp:host=192.168.11.145/usr/share/.../file.py
+
+For an Odoo module under development on that machine, the useful MCP server is
+that machine's own Odoo (`ai_pi_mcp`), i.e. http://<host>:8069/mcp — not the
+central one.  This script registers one MCP entry per machine:
+
+    "ai_pi_mcp_<sanitised-host>": {
+        "transport": "streamable-http",
+        "url": "http://<host>:8069/mcp",
+        "headers": { "Authorization": "Bearer <token>" },
+        "lifecycle": "lazy"
+    }
+
+Token resolution, per host, in order:
+
+1. ``~/.config/geany/geany-pi/mcp-hosts.json`` — explicit map, e.g.
+       { "hosts": { "192.168.11.145": { "url": "...", "token": "..." } } }
+2. the *same* file's ``"default_token"`` (a shared dev key reused for every
+   host), with the URL defaulting to ``http://<host>:8069/mcp``.
+3. the host's own ``~/.pi/agent/odoo.json`` read over ssh — only usable when
+   its ``baseUrl`` actually points at that host.
+4. otherwise the host is reported as *skipped: no token* (and Py MCP will not
+   be able to use it until a key is supplied).
+
+The local machine entry (``ai_pi_mcp``) keeps the existing behaviour from
+``~/.pi/agent/odoo.json``.
+
+Usage
+-----
+    geany-pi-mcp-sync                       # auto-detect hosts via geany-pi-ctl
+    geany-pi-mcp-sync --host 192.168.11.145 --host 192.168.11.33
+    geany-pi-mcp-sync --dry-run
+    geany-pi-mcp-sync --remove              # drop all per-host entries
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+AGENT = Path.home() / ".pi" / "agent"
+MCP_JSON = AGENT / "mcp.json"
+ODOO_JSON = AGENT / "odoo.json"
+# Token/kartfil. Can be provisioned centrally by Salt (system-wide) so a
+# workstation never needs per-machine secrets:
+#   1. $GEANY_LLM_MCP_HOSTS
+#   2. /etc/geany-pi/mcp-hosts.json          (Salt-managed, shared)
+#   3. ~/.config/geany/geany-pi/mcp-hosts.json (per user)
+HOSTS_CANDIDATES = [
+    Path(os.environ["GEANY_LLM_MCP_HOSTS"]) if os.environ.get("GEANY_LLM_MCP_HOSTS") else None,
+    Path("/etc/geany-pi/mcp-hosts.json"),
+    Path.home() / ".config" / "geany" / "geany-pi" / "mcp-hosts.json",
+]
+HOSTS_JSON = Path.home() / ".config" / "geany" / "geany-pi" / "mcp-hosts.json"
+PREFIX = "ai_pi_mcp_"
+
+
+def sanitise(host: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", host).strip("_")
+
+
+def mcp_url_from_base(base_url: str) -> str:
+    root = base_url.rstrip("/")
+    if root.endswith("/ai/v1"):
+        root = root[: -len("/ai/v1")]
+    return root.rstrip("/") + "/mcp"
+
+
+def load_json(path: Path):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def local_entry() -> tuple[str, str] | None:
+    """(url, token) for the machine's own Pi Odoo connection."""
+    d = load_json(ODOO_JSON)
+    if not d or not d.get("baseUrl") or not d.get("token"):
+        return None
+    return mcp_url_from_base(d["baseUrl"]), d["token"]
+
+
+def host_config() -> dict:
+    for cand in HOSTS_CANDIDATES:
+        if cand is None:
+            continue
+        d = load_json(cand)
+        if isinstance(d, dict):
+            d["_source"] = str(cand)
+            return d
+    return {}
+
+
+def detect_hosts_from_geany() -> list[str]:
+    exe = shutil.which("geany-pi-ctl")
+    if not exe:
+        return []
+    try:
+        out = subprocess.run([exe, "--json", "docs"], capture_output=True,
+                             text=True, timeout=10).stdout
+        docs = json.loads(out).get("docs", [])
+    except Exception:
+        return []
+    hosts = set()
+    for d in docs:
+        m = re.search(r"sftp:host=([^/]+)", d.get("file", ""))
+        if m:
+            hosts.add(m.group(1))
+    return sorted(hosts)
+
+
+def ssh_odoo_json(host: str) -> dict | None:
+    try:
+        out = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4",
+             "-o", "StrictHostKeyChecking=no", host,
+             "cat ~/.pi/agent/odoo.json"],
+            capture_output=True, text=True, timeout=12,
+        )
+        if out.returncode != 0:
+            return None
+        return json.loads(out.stdout)
+    except Exception:
+        return None
+
+
+def resolve_host(host: str, cfg: dict) -> tuple[str, str, str] | None:
+    """Return (url, token, source) or None."""
+    hosts = cfg.get("hosts") or {}
+    entry = hosts.get(host)
+    if isinstance(entry, dict) and entry.get("token"):
+        url = entry.get("url") or f"http://{host}:8069/mcp"
+        return url, entry["token"], "mcp-hosts.json"
+
+    if cfg.get("default_token"):
+        url = cfg.get("default_url_pattern", "http://{host}:8069/mcp").format(
+            host=host)
+        return url, cfg["default_token"], "mcp-hosts.json (default_token)"
+
+    d = ssh_odoo_json(host)
+    if d and d.get("baseUrl") and d.get("token"):
+        if host in d["baseUrl"]:
+            return mcp_url_from_base(d["baseUrl"]), d["token"], \
+                   "remote odoo.json"
+    return None
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="geany-pi-mcp-sync")
+    ap.add_argument("--host", action="append", default=[],
+                    help="remote host with documents (repeatable)")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--remove", action="store_true",
+                    help="remove all per-host entries")
+    ap.add_argument("--no-local", action="store_true",
+                    help="do not touch the local ai_pi_mcp entry "
+                         "(the plugin owns it when the router is used)")
+    ap.add_argument("--no-hosts", action="store_true",
+                    help="do not register per-host entries (the router "
+                         "routes per document instead); removes stale ones")
+    ap.add_argument("--quiet", action="store_true")
+    args = ap.parse_args(argv)
+
+    def say(msg):
+        if not args.quiet:
+            print(msg)
+
+    cfg = host_config()
+    hosts = args.host or detect_hosts_from_geany()
+
+    mcp = load_json(MCP_JSON) or {}
+    servers = mcp.setdefault("mcpServers", {})
+
+    removed = [k for k in list(servers) if k.startswith(PREFIX)]
+    for k in removed:
+        del servers[k]
+    if removed:
+        say("removed: %s" % ", ".join(removed))
+    if args.remove:
+        if not args.dry_run:
+            MCP_JSON.write_text(json.dumps(mcp, indent=2) + "\n")
+            os.chmod(MCP_JSON, 0o600)
+        return 0
+
+    # the local machine's own connection (unless the router owns it)
+    le = local_entry()
+    if args.no_local:
+        say("local   ai_pi_mcp -> (left to the plugin/router)")
+    elif le:
+        servers["ai_pi_mcp"] = {
+            "transport": "streamable-http",
+            "url": le[0],
+            "headers": {"Authorization": "Bearer " + le[1]},
+            "lifecycle": "lazy",
+        }
+        say("local   ai_pi_mcp -> %s" % le[0])
+    else:
+        say("local   ai_pi_mcp -> (skipped: no ~/.pi/agent/odoo.json)")
+
+    skipped = []
+    src = cfg.get("_source", str(HOSTS_JSON))
+    if args.no_hosts:
+        say("hosts   (per-host entries disabled - the router handles routing)")
+        hosts = []
+    for host in hosts:
+        res = resolve_host(host, cfg)
+        name = PREFIX + sanitise(host)
+        if not res:
+            skipped.append(host)
+            say("host    %-16s -> skipped (no token; see %s or /etc/geany-pi/mcp-hosts.json)"
+                % (host, src))
+            continue
+        url, token, source = res
+        servers[name] = {
+            "transport": "streamable-http",
+            "url": url,
+            "headers": {"Authorization": "Bearer " + token},
+            "lifecycle": "lazy",
+        }
+        say("host    %-16s -> %s  [%s]  as %s" % (host, url, source, name))
+
+    if args.dry_run:
+        say("(dry run - nothing written)")
+        return 0
+
+    MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
+    MCP_JSON.write_text(json.dumps(mcp, indent=2) + "\n")
+    os.chmod(MCP_JSON, 0o600)
+    say("wrote %s (servers: %s)" % (MCP_JSON, ", ".join(servers)))
+    if skipped:
+        say("NOTE: %d host(s) need a token before Pi can use them: %s"
+            % (len(skipped), ", ".join(skipped)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
