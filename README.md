@@ -118,16 +118,53 @@ Native Geany plugin source lives in [`geany-pi/`](geany-pi/):
 Configuration is done in Geany's Plugin Manager → Preferences (no Tools menu
 items).
 
+## geany-pfiles — p-file support
+
+Source in [`geany-pfiles/`](geany-pfiles/). Odoo modules here are written
+version-agnostically as *p-files* (`x.p.py`, `x.p.xml`, …) and expanded per
+edition with `preprocess -f -D VERSION=<v> -o <out> <in>`.
+
+* editions are a comma separated list in the plugin's own preferences
+  (e.g. `16.0,17.0,18.0`);
+* one entry per edition — a **P-files** toolbar drop-down without limit, plus
+  one item per edition in Geany's **Build** menu (Geany's non-filetype group is
+  fixed at four slots and `build_set_group_count()` is private, so more
+  editions than that live in the toolbar menu);
+* the expansion runs **on the machine that owns the document** — resolved from
+  the gvfs/sftp path itself (ssh) or locally, the same target resolution as the
+  Multiterm tab;
+* a *git configuration* action deploys what p-files need in the document's
+  repository on that machine: a managed `.gitattributes` block, a `pre-commit`
+  hook expanding staged p-files for the version named by the current branch
+  (branch-per-version), and `core.hooksPath` pointing at it.
+
+Directive syntax (verified against PyPI `preprocess` 2.0.0 and the production
+p-files in `/usr/share/odoo-*`): `# #if VERSION >= "18.0"` … `# #endif` in
+`.p.py` (**double hash** — the comment prefix plus the `#if` statement) and
+`<!-- #if … -->` in `.p.xml`. `-f` is required for re-runs.
+
+## geany-mermaid — Mermaid diagram preview
+
+Source in [`geany-mermaid/`](geany-mermaid/). Renders the ```` ```mermaid ````
+blocks (and `@startmermaid` … `@endmermaid`) of the active document with
+**mmdc** and shows them in a plugin window — toolbar button or
+`Ctrl+Shift+M`. PNG + `GdkPixbuf` rather than SVG, because Geany does not
+depend on librsvg. Rendering is asynchronous and queued; `mmdc` comes from the
+`workstation.md2pdf` Salt state.
+
 ### Install (Salt)
 
 Salt pulls **the current code from this repository** on every run and rebuilds
-when it changed — there is no copy of the plugin source on the Salt master:
+every plugin that changed — there is no copy of the plugin source on the Salt
+master:
 
 ```
 salt <minion> state.apply workstation.geany pillar='{"user": "waland"}'
 ```
 
-Manual build: `cd geany-pi && make && make install`.
+Manual build: `cd geany-pi && make && make install` (likewise for
+`geany-pfiles` and `geany-mermaid`).
 
-Requires Ubuntu 24.04, Geany 2.1 (`ppa:ubuntuhandbook1/geany`) and
-`libvte-2.91-dev`.
+Requires Ubuntu 24.04, Geany 2.1 (`ppa:ubuntuhandbook1/geany`),
+`libvte-2.91-dev` (geany-pi) and `preprocess` (geany-pfiles, installed by the
+Salt state; `mmdc` for geany-mermaid comes from `workstation.md2pdf`).
