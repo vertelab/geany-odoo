@@ -1,12 +1,42 @@
 # geany-pfiles — p-file support for Geany
 
 A Geany plugin for version-agnostic Odoo development with **p-files**:
-`x.p.py`, `x.p.xml`, … contain `#if VERSION >= "18.0"` blocks and are expanded
-per edition with
+`x.p.py`, `x.p.xml`, … contain version blocks and are expanded per edition
+with
 
 ```sh
-preprocess -D VERSION=18.0 -o x.py x.p.py
+preprocess -f -D VERSION=18.0 -o x.py x.p.py
 ```
+
+### Directive syntax (verified against the preprocessor and production)
+
+`preprocess` (PyPI, 2.0.0 — the tool the whole shop uses: Odoo's own
+`*.p.py`/`*.p.xml` files in `/usr/share/odoo-*` are written this way) expects
+`<comment-prefix> #<statement>`:
+
+```python
+# #if VERSION >= "18.0"
+    field = fields.Property(...)
+# #elif VERSION >= "17.0"
+    field = fields.Char(...)
+# #else
+    field = fields.Char(...)
+# #endif
+```
+
+```xml
+<!-- #if VERSION <= "16.0" -->
+<field name="x"/>
+<!-- #endif -->
+```
+
+**Note the double `#` in Python files.** `#if VERSION >= "18.0"` (single `#`)
+is a plain Python comment and is *not* processed; the comment prefix is `#`
+and the statement itself is `#if`. `# # if …` (with a space) also works.
+
+`-f` (force) is essential: `preprocess` refuses to overwrite an existing output
+file, so without it every second expansion of the same p-file fails. The helper
+passes it automatically (see `force_args` below).
 
 The plugin covers four things:
 
@@ -29,8 +59,13 @@ The plugin covers four things:
 | | |
 |---|---|
 | Geany | 2.x (`geany` + `geany-dev`, GTK3) |
-| preprocess | `pip install preprocess` (the `preprocess` command) |
+| preprocess | `python3 -m pip install --break-system-packages preprocess` |
 | ssh | only for documents opened over gvfs/sftp |
+
+`preprocess` must exist **on the machine that owns the document** — that is
+where the expansion runs. In Salt this is provided by
+`workstation.geany` (workstations) and by `odoo.pfile`
+(`pfile_install_preprocess`, the Odoo hosts).
 
 ## Build & install
 
@@ -38,6 +73,10 @@ The plugin covers four things:
 make                 # -> geany-pfiles.so
 sudo make install    # -> /usr/lib/x86_64-linux-gnu/geany/ + ~/.local/bin/geany-pfiles
 ```
+
+Salt creates `~/.config/geany/geany-pfiles/geany-pfiles.conf` on the first
+apply (only if it is missing — your own edits are never overwritten) with the
+editions list from the `geany_editions` pillar (default `17.0,18.0,19.0`).
 
 On the workstations this is deployed by Salt (`workstation/geany`), which
 fetches `vertelab/geany-odoo` and builds every plugin in it.
@@ -77,6 +116,9 @@ which, in the repository containing the file, on the file's machine:
   *.p.csv linguist-language=CSV        text eol=lf
   ```
 
+  (so p-files are recognised as source in their language, and get LF endings
+  everywhere.)
+
 * writes **`<hooksPath>/pre-commit`** (default `.githooks`), which expands the
   staged p-files for the version named by the current branch — the
   branch-per-version model: on branch `18.0` the hook expands with
@@ -99,11 +141,16 @@ so it is safe to re-run after changing the editions list.
 list=17.0,18.0,19.0
 preprocess_cmd=preprocess
 defines=-D REPO=my_module
+force_args=-f
 
 [git]
 hooks_path=.githooks
 precommit=true
 ```
+
+* **preprocess_cmd** may contain arguments (`python3 /path/to/preprocess`).
+* **force_args** defaults to `-f`; set it empty for a preprocessor that has no
+  such flag.
 
 The same values are edited in the plugin's Preferences dialog, which also has
 *Uppdatera Bygg-menyn nu* and *Skicka ut git-konfiguration* buttons.
@@ -147,6 +194,10 @@ geany-pfiles where        /run/user/1000/gvfs/sftp:host=host/usr/share/x/a.p.py
 geany-pfiles preprocess   18.0 a.p.py
 geany-pfiles git-config   a.p.py --editions 16.0,17.0,18.0
 ```
+
+A remote path is resolved from the gvfs URI itself (`sftp:host=…,user=…,port=…`)
+and the command is run there over `ssh`; `geany-pfiles where` prints the
+resolution (`host:dir` or `local:dir`).
 
 ## Notes
 

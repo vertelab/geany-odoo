@@ -41,6 +41,7 @@ static GtkToolItem *g_tb_item = NULL;
 static gchar   *g_editions       = NULL;   /* "17.0,18.0,19.0" */
 static gchar   *g_preprocess_cmd = NULL;   /* "preprocess" */
 static gchar   *g_defines        = NULL;   /* extra -D args */
+static gchar   *g_force_args     = NULL;   /* "-f": overwrite the output */
 static gchar   *g_hooks_path     = NULL;   /* ".githooks" */
 static gboolean g_precommit      = TRUE;
 
@@ -107,10 +108,11 @@ static void prefs_load(void)
     gchar *s;
 
     g_free(g_editions); g_free(g_preprocess_cmd);
-    g_free(g_defines);  g_free(g_hooks_path);
+    g_free(g_defines);  g_free(g_hooks_path); g_free(g_force_args);
     g_editions = g_strdup("17.0,18.0,19.0");
     g_preprocess_cmd = g_strdup("preprocess");
     g_defines = g_strdup("");
+    g_force_args = g_strdup("-f");
     g_hooks_path = g_strdup(".githooks");
     g_precommit = TRUE;
 
@@ -122,6 +124,11 @@ static void prefs_load(void)
         { g_free(g_preprocess_cmd); g_preprocess_cmd = s; }
         if ((s = g_key_file_get_string(kf, "editions", "defines", NULL)))
         { g_free(g_defines); g_defines = s; }
+        if (g_key_file_has_key(kf, "editions", "force_args", NULL))
+        {
+            if ((s = g_key_file_get_string(kf, "editions", "force_args", NULL)))
+            { g_free(g_force_args); g_force_args = s; }
+        }
         if ((s = g_key_file_get_string(kf, "git", "hooks_path", NULL)))
         { g_free(g_hooks_path); g_hooks_path = s; }
         if (g_key_file_has_key(kf, "git", "precommit", NULL))
@@ -143,6 +150,8 @@ static void prefs_save(void)
     g_key_file_set_string(kf, "editions", "preprocess_cmd",
                           g_preprocess_cmd ? g_preprocess_cmd : "preprocess");
     g_key_file_set_string(kf, "editions", "defines", g_defines ? g_defines : "");
+    g_key_file_set_string(kf, "editions", "force_args",
+                          g_force_args ? g_force_args : "");
     g_key_file_set_string(kf, "git", "hooks_path",
                           g_hooks_path ? g_hooks_path : ".githooks");
     g_key_file_set_boolean(kf, "git", "precommit", g_precommit);
@@ -487,7 +496,7 @@ static void toolbar_refresh(void)
 /* ---------------------------------------------------------------------- */
 /* preferences dialog                                                     */
 /* ---------------------------------------------------------------------- */
-typedef struct { GtkWidget *editions, *cmd, *defines, *hooks, *precommit; }
+typedef struct { GtkWidget *editions, *cmd, *defines, *force, *hooks, *precommit; }
 PrefsW;
 
 static void on_refresh_menu(GtkButton *b, gpointer d)
@@ -546,24 +555,33 @@ GtkWidget *plugin_configure(GtkDialog *dialog)
     gtk_widget_set_hexpand(w->defines, TRUE);
     gtk_grid_attach(GTK_GRID(grid), w->defines, 1, 3, 1, 1);
 
+    lbl = gtk_label_new("Extra flaggor (force)");
+    gtk_widget_set_halign(lbl, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(grid), lbl, 0, 4, 1, 1);
+    w->force = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(w->force), "-f");
+    gtk_entry_set_text(GTK_ENTRY(w->force), g_force_args ? g_force_args : "");
+    gtk_widget_set_hexpand(w->force, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), w->force, 1, 4, 1, 1);
+
     hdr = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(hdr), "<b>Git</b> (för p-filerna)");
     gtk_widget_set_halign(hdr, GTK_ALIGN_START);
     gtk_widget_set_margin_top(hdr, 8);
-    gtk_grid_attach(GTK_GRID(grid), hdr, 0, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), hdr, 0, 5, 2, 1);
 
     lbl = gtk_label_new("hooksPath");
     gtk_widget_set_halign(lbl, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), lbl, 0, 5, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lbl, 0, 6, 1, 1);
     w->hooks = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(w->hooks), g_hooks_path ? g_hooks_path : "");
     gtk_widget_set_hexpand(w->hooks, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), w->hooks, 1, 5, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->hooks, 1, 6, 1, 1);
 
     w->precommit = gtk_check_button_new_with_mnemonic(
         "Installera pre-commit-hook (expanderar staged p-filer per gren)");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w->precommit), g_precommit);
-    gtk_grid_attach(GTK_GRID(grid), w->precommit, 0, 6, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->precommit, 0, 7, 2, 1);
 
     {
         GtkWidget *box = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
@@ -574,7 +592,7 @@ GtkWidget *plugin_configure(GtkDialog *dialog)
         g_signal_connect(b1, "clicked", G_CALLBACK(on_refresh_menu), NULL);
         g_signal_connect(b2, "clicked", G_CALLBACK(on_send_git), NULL);
         gtk_widget_set_margin_top(box, 8);
-        gtk_grid_attach(GTK_GRID(grid), box, 0, 7, 2, 1);
+        gtk_grid_attach(GTK_GRID(grid), box, 0, 8, 2, 1);
     }
 
     g_object_set_data(G_OBJECT(dialog), "pfiles-w", w);
@@ -599,6 +617,9 @@ static void prefs_collect(GtkDialog *dlg)
     g_free(g_defines);
     s = gtk_entry_get_text(GTK_ENTRY(w->defines));
     g_defines = g_strdup(s ? s : "");
+    g_free(g_force_args);
+    s = gtk_entry_get_text(GTK_ENTRY(w->force));
+    g_force_args = g_strdup(s ? s : "");
     g_free(g_hooks_path);
     s = gtk_entry_get_text(GTK_ENTRY(w->hooks));
     g_hooks_path = g_strdup((s && *s) ? s : ".githooks");
